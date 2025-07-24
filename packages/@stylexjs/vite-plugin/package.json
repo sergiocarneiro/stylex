@@ -3,6 +3,13 @@
   "version": "0.14.3",
   "description": "StyleX plugin for Vite.",
   "main": "lib/index.js",
+  "module": "lib/es/index.mjs",
+  "exports": {
+    ".": {
+      "import": "./lib/es/index.mjs",
+      "require": "./lib/index.js"
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/facebook/stylex.git"
@@ -19,6 +26,7 @@
     "@stylexjs/rollup-plugin": "0.14.3"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "scripts": "0.14.3",
     "vite": "^6.0.0"
   },

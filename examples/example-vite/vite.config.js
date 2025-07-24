@@ -4,13 +4,14 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-import { defineConfig } from 'vite';
-import stylexPlugin from '@stylexjs/vite-plugin';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const stylexPlugin = require('@stylexjs/vite-plugin').default;
 
-export default defineConfig({
+export default {
   plugins: [
     stylexPlugin({
       fileName: 'stylex.css',
     }),
   ],
-});
+};
