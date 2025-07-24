@@ -1,0 +1,31 @@
+{
+  "name": "@stylexjs/vite-plugin",
+  "version": "0.14.3",
+  "description": "StyleX plugin for Vite.",
+  "main": "lib/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/facebook/stylex.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "prebuild": "gen-types -i src/ -o lib/",
+    "build": "npm run build:cjs && npm run build:esm",
+    "build:cjs": "cross-env BABEL_ENV=cjs babel src/ --out-dir lib/ --copy-files",
+    "build:esm": "cross-env BABEL_ENV=esm babel src/ --out-dir lib/es --out-file-extension .mjs",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@stylexjs/rollup-plugin": "0.14.3"
+  },
+  "devDependencies": {
+    "scripts": "0.14.3",
+    "vite": "^6.0.0"
+  },
+  "files": [
+    "lib/*"
+  ],
+  "peerDependencies": {
+    "vite": ">=4.0.0"
+  }
+}
