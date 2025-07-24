@@ -9,6 +9,15 @@ module.exports = {
         ['@babel/preset-env', { targets: { node: 'current' } }],
         '@babel/preset-flow'
       ]
+    },
+    esm: {
+      presets: [
+        ['@babel/preset-env', { 
+          targets: { node: '14' },
+          modules: false  // This ensures ESM output
+        }],
+        '@babel/preset-flow'
+      ]
     }
   }
 };

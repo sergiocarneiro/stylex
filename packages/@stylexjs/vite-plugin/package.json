@@ -23,7 +23,12 @@
     "test": "jest"
   },
   "dependencies": {
-    "@stylexjs/rollup-plugin": "0.14.3"
+    "@stylexjs/babel-plugin": "0.14.3",
+    "@stylexjs/postcss-plugin": "0.14.3",
+    "@vitejs/plugin-react": "^4.3.4"
+  },
+  "optionalDependencies": {
+    "autoprefixer": "^10.4.20"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
