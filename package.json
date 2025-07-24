@@ -20,6 +20,7 @@
     "packages/shared",
     "packages/@stylexjs/stylex",
     "packages/@stylexjs/babel-plugin",
+    "packages/@stylexjs/vite-plugin",
     "packages/@stylexjs/*",
     "packages/*",
     "examples/*"
