@@ -29,6 +29,9 @@ import type {
   VarGroup,
   PositionTry,
   ViewTransitionClass,
+  StyleX$When,
+  MapNamespace,
+  StyleX$DefineMarker,
 } from './types/StyleXTypes';
 import type { ValueWithDefault } from './types/StyleXUtils';
 import * as Types from './types/VarTypes';
@@ -60,7 +63,7 @@ const errorForFn = (name: string) =>
 const errorForType = (key: $Keys<typeof types>) => errorForFn(`types.${key}`);
 
 export const create: StyleX$Create = function stylexCreate<
-  S: { +[string]: mixed },
+  const S: { +[string]: mixed },
 >(_styles: S): MapNamespaces<S> {
   throw errorForFn('create');
 };
@@ -69,9 +72,9 @@ export const createTheme: StyleX$CreateTheme = (_baseTokens, _overrides) => {
   throw errorForFn('createTheme');
 };
 
-export const defineConsts: StyleX$DefineConsts = function stylexDefineConsts(
-  _styles: $FlowFixMe,
-) {
+export const defineConsts: StyleX$DefineConsts = function stylexDefineConsts<
+  const T: { +[string]: number | string },
+>(_styles: T): T {
   throw errorForFn('defineConsts');
 };
 
@@ -79,6 +82,10 @@ export const defineVars: StyleX$DefineVars = function stylexDefineVars(
   _styles: $FlowFixMe,
 ) {
   throw errorForFn('defineVars');
+};
+
+export const defineMarker: StyleX$DefineMarker = () => {
+  throw errorForFn('defineMarker');
 };
 
 export const firstThatWorks = <T: string | number>(
@@ -131,6 +138,32 @@ export const viewTransitionClass = (
   throw errorForFn('viewTransitionClass');
 };
 
+export const defaultMarker = (): MapNamespace<
+  $ReadOnly<{
+    marker: 'default-marker',
+  }>,
+> => {
+  throw errorForFn('defaultMarker');
+};
+
+export const when: StyleX$When = {
+  ancestor: (_p) => {
+    throw errorForFn('when.ancestor');
+  },
+  descendant: (_p) => {
+    throw errorForFn('when.descendant');
+  },
+  siblingBefore: (_p) => {
+    throw errorForFn('when.siblingBefore');
+  },
+  siblingAfter: (_p) => {
+    throw errorForFn('when.siblingAfter');
+  },
+  anySibling: (_p) => {
+    throw errorForFn('when.anySibling');
+  },
+};
+
 export const types = {
   angle: <T: string | 0 = string | 0>(
     _v: ValueWithDefault<T>,
@@ -146,9 +179,7 @@ export const types = {
   image: <T: string = string>(_v: ValueWithDefault<T>): Types.Image<T> => {
     throw errorForType('image');
   },
-  integer: <T: number | string = number | string>(
-    _v: ValueWithDefault<T>,
-  ): Types.Integer<T> => {
+  integer: <T: number = number>(_v: ValueWithDefault<T>): Types.Integer<T> => {
     throw errorForType('integer');
   },
   lengthPercentage: <T: number | string = number | string>(
@@ -166,9 +197,7 @@ export const types = {
   ): Types.Percentage<T> => {
     throw errorForType('percentage');
   },
-  number: <T: number | string = number | string>(
-    _v: ValueWithDefault<T>,
-  ): Types.Num<T> => {
+  number: <T: number = number>(_v: ValueWithDefault<T>): Types.Num<T> => {
     throw errorForType('number');
   },
   resolution: <T: string = string>(
@@ -201,7 +230,14 @@ type IStyleX = {
   (...styles: $ReadOnlyArray<StyleXArray<?CompiledStyles | boolean>>): string,
   create: StyleX$Create,
   createTheme: StyleX$CreateTheme,
+  defineConsts: StyleX$DefineConsts,
   defineVars: StyleX$DefineVars,
+  defaultMarker: () => MapNamespace<
+    $ReadOnly<{
+      marker: 'default-marker',
+    }>,
+  >,
+  defineMarker: StyleX$DefineMarker,
   firstThatWorks: <T: string | number>(
     ...v: $ReadOnlyArray<T>
   ) => $ReadOnlyArray<T>,
@@ -221,6 +257,7 @@ type IStyleX = {
   }>,
   viewTransitionClass: (viewTransitionClass: ViewTransitionClass) => string,
   types: typeof types,
+  when: typeof when,
   __customProperties?: { [string]: mixed },
   ...
 };
@@ -234,12 +271,16 @@ function _legacyMerge(
 
 _legacyMerge.create = create;
 _legacyMerge.createTheme = createTheme;
+_legacyMerge.defineConsts = defineConsts;
+_legacyMerge.defineMarker = defineMarker;
 _legacyMerge.defineVars = defineVars;
+_legacyMerge.defaultMarker = defaultMarker;
 _legacyMerge.firstThatWorks = firstThatWorks;
 _legacyMerge.keyframes = keyframes;
 _legacyMerge.positionTry = positionTry;
 _legacyMerge.props = props;
 _legacyMerge.types = types;
+_legacyMerge.when = when;
 _legacyMerge.viewTransitionClass = viewTransitionClass;
 
 export const legacyMerge: IStyleX = _legacyMerge;

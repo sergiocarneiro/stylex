@@ -17,7 +17,7 @@ type Fraction = [number, '/', number];
 type WordRule = 'color' | 'monochrome' | 'grid' | 'color-index';
 type Length = TokenDimension[4];
 
-type MediaRuleValue = Length | string | Fraction;
+type MediaRuleValue = number | Length | string | Fraction;
 
 type MediaKeyword = {
   type: 'media-keyword',
@@ -35,7 +35,7 @@ type MediaNotRule = { type: 'not', rule: MediaQueryRule };
 type MediaAndRules = { type: 'and', rules: $ReadOnlyArray<MediaQueryRule> };
 type MediaOrRules = { type: 'or', rules: $ReadOnlyArray<MediaQueryRule> };
 
-type MediaQueryRule =
+export type MediaQueryRule =
   | MediaKeyword
   | MediaWordRule
   | MediaRulePair
@@ -85,7 +85,7 @@ const mediaWordRuleParser: TokenParser<MediaWordRule> =
   TokenParser.tokens.Ident.map((token) => token[4].value, '.stringValue')
     .surroundedBy(TokenParser.tokens.OpenParen, TokenParser.tokens.CloseParen)
     .where(
-      (key) =>
+      (key): implies key is WordRule =>
         key === 'color' ||
         key === 'monochrome' ||
         key === 'grid' ||
@@ -109,6 +109,7 @@ const mediaRuleValueParser: TokenParser<MediaRuleValue> = TokenParser.oneOf(
     ).map(() => '/'),
     TokenParser.tokens.Number.map((token) => token[4].value),
   ).separatedBy(TokenParser.tokens.Whitespace.optional),
+  TokenParser.tokens.Number.map((token) => token[4].value),
 );
 
 const simplePairParser: TokenParser<MediaRulePair> = TokenParser.sequence(
@@ -336,9 +337,9 @@ notParser = TokenParser.sequence(
   TokenParser.tokens.Whitespace,
   getNormalRuleParser(),
   TokenParser.tokens.CloseParen,
-).map(([_openParen, _not, _space, rule, _closeParen]) => ({
+).map(([_openParen, _not, _space, rule, _closeParen]): MediaNotRule => ({
   type: 'not',
-  rule,
+  rule: rule as $FlowFixMe,
 }));
 
 function isNumericLength(val: mixed): boolean {
@@ -355,71 +356,146 @@ function isNumericLength(val: mixed): boolean {
 function mergeIntervalsForAnd(
   rules: Array<MediaQueryRule>,
 ): Array<MediaQueryRule> {
-  const intervals: Array<[number, number]> = [];
   const epsilon: number = 0.01;
-  for (const rule: MediaQueryRule of rules) {
-    if (
-      rule.type === 'pair' &&
-      (rule.key === 'min-width' || rule.key === 'max-width') &&
-      isNumericLength(rule.value)
-    ) {
-      const val = rule.value as any;
-      intervals.push(
-        rule.key === 'min-width'
-          ? [val.value, Infinity]
-          : [-Infinity, val.value],
-      );
-    } else if (
-      rule.type === 'not' &&
-      rule.rule &&
-      rule.rule.type === 'pair' &&
-      (rule.rule.key === 'min-width' || rule.rule.key === 'max-width') &&
-      isNumericLength(rule.rule.value)
-    ) {
-      const val = rule.rule.value as any;
-      if (rule.rule.key === 'min-width') {
-        intervals.push([-Infinity, val.value - epsilon]);
-      } else {
-        intervals.push([val.value + epsilon, Infinity]);
+  const dimensions = ['width', 'height'];
+  const intervals: { [dim: string]: Array<[number, number]> } = {
+    width: [],
+    height: [],
+  };
+
+  const units: { [dim: string]: string } = {};
+
+  let hasAnyUnitConflicts = false;
+
+  for (const rule of rules) {
+    if (rule.type === 'not' && rule.rule.type === 'and') {
+      const inner = rule.rule.rules;
+      if (inner.length === 2) {
+        const [left, right] = inner;
+
+        const leftBranch = mergeIntervalsForAnd([
+          ...rules.filter((r) => r !== rule),
+          { type: 'not', rule: left },
+        ]);
+        const rightBranch = mergeIntervalsForAnd([
+          ...rules.filter((r) => r !== rule),
+          { type: 'not', rule: right },
+        ]);
+
+        return [
+          {
+            type: 'or',
+            rules: [leftBranch, rightBranch]
+              .filter((branch) => branch.length > 0)
+              .map((branch) =>
+                branch.length === 1
+                  ? branch[0]
+                  : { type: 'and', rules: branch },
+              ),
+          },
+        ];
       }
-    } else {
+    }
+  }
+
+  for (const rule: MediaQueryRule of rules) {
+    for (const dim of dimensions) {
+      if (
+        rule.type === 'pair' &&
+        (rule.key === `min-${dim}` || rule.key === `max-${dim}`) &&
+        isNumericLength(rule.value)
+      ) {
+        const val = rule.value as any;
+
+        if (intervals[dim].length === 0) {
+          units[dim] = val.unit;
+        } else if (units[dim] !== val.unit) {
+          hasAnyUnitConflicts = true;
+        }
+        intervals[dim].push(
+          rule.key === `min-${dim}`
+            ? [val.value, Infinity]
+            : [-Infinity, val.value],
+        );
+        break;
+      } else if (
+        rule.type === 'not' &&
+        rule.rule &&
+        rule.rule.type === 'pair' &&
+        (rule.rule.key === `min-${dim}` || rule.rule.key === `max-${dim}`) &&
+        isNumericLength(rule.rule.value)
+      ) {
+        const val = rule.rule.value as any;
+        if (intervals[dim].length === 0) {
+          units[dim] = val.unit;
+        } else if (units[dim] !== val.unit) {
+          hasAnyUnitConflicts = true;
+        }
+        if (rule.rule.key === `min-${dim}`) {
+          intervals[dim].push([-Infinity, val.value - epsilon]);
+        } else {
+          intervals[dim].push([val.value + epsilon, Infinity]);
+        }
+        break;
+      }
+    }
+    if (
+      !(
+        (rule.type === 'pair' &&
+          (rule.key === 'min-width' ||
+            rule.key === 'max-width' ||
+            rule.key === 'min-height' ||
+            rule.key === 'max-height') &&
+          isNumericLength(rule.value)) ||
+        (rule.type === 'not' &&
+          rule.rule &&
+          rule.rule.type === 'pair' &&
+          (rule.rule.key === 'min-width' ||
+            rule.rule.key === 'max-width' ||
+            rule.rule.key === 'min-height' ||
+            rule.rule.key === 'max-height') &&
+          isNumericLength(rule.rule.value))
+      )
+    ) {
       return rules;
     }
   }
-  if (intervals.length === 0) return rules;
 
-  let lower: number = -Infinity;
-  let upper: number = Infinity;
-  for (const [l, u]: [number, number] of intervals) {
-    if (l > lower) lower = l;
-    if (u < upper) upper = u;
-  }
-
-  if (lower > upper) {
-    return [
-      {
-        type: 'media-keyword',
-        key: 'all',
-        not: true,
-      },
-    ];
-  }
   const result: Array<MediaQueryRule> = [];
-  if (lower !== -Infinity) {
-    result.push({
-      type: 'pair',
-      key: 'min-width',
-      value: { value: lower, unit: 'px', type: 'integer' } as any,
-    });
+
+  if (hasAnyUnitConflicts) {
+    return rules;
   }
-  if (upper !== Infinity) {
-    result.push({
-      type: 'pair',
-      key: 'max-width',
-      value: { value: upper, unit: 'px', type: 'integer' } as any,
-    });
+
+  for (const dim of dimensions) {
+    const dimIntervals = intervals[dim];
+    if (dimIntervals.length === 0) continue;
+
+    let lower: number = -Infinity;
+    let upper: number = Infinity;
+    for (const [l, u]: [number, number] of dimIntervals) {
+      if (l > lower) lower = l;
+      if (u < upper) upper = u;
+    }
+    if (lower > upper) {
+      return [];
+    }
+    if (lower !== -Infinity) {
+      result.push({
+        type: 'pair',
+        key: `min-${dim}`,
+        value: { value: lower, unit: units[dim], type: 'integer' } as any,
+      });
+    }
+    if (upper !== Infinity) {
+      result.push({
+        type: 'pair',
+        key: `max-${dim}`,
+        value: { value: upper, unit: units[dim], type: 'integer' } as any,
+      });
+    }
   }
-  return result;
+  return result.length > 0 ? result : rules;
 }
 
 function mergeAndSimplifyRanges(
@@ -444,7 +520,7 @@ export class MediaQuery {
     switch (queries.type) {
       case 'media-keyword': {
         const prefix = queries.not ? 'not ' : queries.only ? 'only ' : '';
-        return prefix + queries.key;
+        return prefix + (isTopLevel ? queries.key : `(${queries.key})`);
       }
       case 'word-rule':
         return `(${queries.keyValue})`;
@@ -479,19 +555,40 @@ export class MediaQuery {
       }
       case 'not':
         return queries.rule &&
-          (queries.rule.type === 'and' || queries.rule.type === 'or')
+          (queries.rule.type === 'and' ||
+            queries.rule.type === 'or' ||
+            queries.rule.type === 'not')
           ? `(not (${this.#toString(queries.rule)}))`
           : `(not ${this.#toString(queries.rule)})`;
       case 'and':
         return queries.rules.map((rule) => this.#toString(rule)).join(' and ');
-      case 'or':
+      case 'or': {
+        const validRules = queries.rules.filter(
+          (r) => !(r.type === 'or' && r.rules.length === 0),
+        );
+        if (validRules.length === 0) return 'not all';
+        if (validRules.length === 1)
+          return this.#toString(validRules[0], isTopLevel);
+
+        const formattedRules = validRules.map((rule) => {
+          if (rule.type === 'and' || rule.type === 'or') {
+            const ruleString = this.#toString(rule);
+            const result = !isTopLevel ? `(${ruleString})` : ruleString;
+            return result;
+          }
+          return this.#toString(rule);
+        });
+
         return isTopLevel
-          ? queries.rules.map((rule) => this.#toString(rule)).join(', ')
-          : queries.rules.map((rule) => this.#toString(rule)).join(' or ');
+          ? formattedRules.join(', ')
+          : formattedRules.join(' or ');
+      }
+
       default:
         return '';
     }
   }
+
   static normalize(rule: MediaQueryRule): MediaQueryRule {
     switch (rule.type) {
       case 'and': {
@@ -505,6 +602,8 @@ export class MediaQuery {
           }
         }
         const merged = mergeAndSimplifyRanges(flattened);
+        if (merged.length === 0)
+          return { type: 'media-keyword', key: 'all', not: true };
         return { type: 'and', rules: merged };
       }
       case 'or':
@@ -512,22 +611,30 @@ export class MediaQuery {
           type: 'or',
           rules: rule.rules.map((r) => MediaQuery.normalize(r)),
         };
+
       case 'not': {
-        let count = 1;
-        let current = rule.rule;
-        while (current && current.type === 'not') {
-          count++;
-          current = current.rule;
+        const normalizedOperand = MediaQuery.normalize(rule.rule);
+
+        if (
+          normalizedOperand.type === 'media-keyword' &&
+          normalizedOperand.key === 'all' &&
+          normalizedOperand.not
+        ) {
+          return { type: 'media-keyword', key: 'all', not: false };
         }
-        const normalizedOperand = MediaQuery.normalize(current);
-        return count % 2 === 0
-          ? normalizedOperand
-          : { type: 'not', rule: normalizedOperand };
+
+        if (normalizedOperand.type === 'not') {
+          return MediaQuery.normalize(normalizedOperand.rule);
+        }
+
+        return { type: 'not', rule: normalizedOperand };
       }
+
       default:
         return rule;
     }
   }
+
   static get parser(): TokenParser<MediaQuery> {
     const leadingNotParser = TokenParser.sequence(
       TokenParser.tokens.Ident.map(
@@ -594,7 +701,7 @@ export class MediaQuery {
           querySets.length > 1
             ? { type: 'or', rules: querySets }
             : querySets[0];
-        return new MediaQuery(rule);
+        return new MediaQuery(rule as $FlowFixMe as MediaQueryRule);
       });
   }
 }

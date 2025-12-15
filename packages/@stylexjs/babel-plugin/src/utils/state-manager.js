@@ -14,21 +14,20 @@ import type {
   StyleXOptions as RuntimeOptions,
 } from '../shared';
 import type { Check } from './validate';
-import type { ImportOptions } from '@babel/helper-module-imports';
 
 import * as t from '@babel/types';
 import { name } from '@stylexjs/stylex/package.json';
-import path from 'path';
-import fs from 'fs';
-import url from 'url';
+import path from 'node:path';
+import fs from 'node:fs';
+import url from 'node:url';
 import * as z from './validate';
-import { addDefault, addNamed } from '@babel/helper-module-imports';
 import { moduleResolve } from '@dual-bundle/import-meta-resolve';
-
-type ImportAdditionOptions = Omit<
-  Partial<ImportOptions>,
-  'ensureLiveReference' | 'ensureNoContext',
->;
+import {
+  addDefaultImport,
+  addNamedImport,
+  getProgramStatement,
+} from './ast-helpers';
+import { defaultOptions } from '../shared/utils/default-options';
 
 export type ImportPathResolution =
   | false
@@ -48,10 +47,20 @@ type ModuleResolution =
       type: 'experimental_crossFileParsing',
       rootDir?: string,
       themeFileExtension?: ?string,
+    }>
+  | $ReadOnly<{
+      type: 'custom',
+      themeFileExtension?: ?string,
+      filePathResolver: (
+        importPath: string,
+        sourceFilePath: string,
+        aliases: ?$ReadOnly<{ [string]: $ReadOnlyArray<string> }>,
+      ) => string | void,
+      getCanonicalFilePath: (filePath: string) => string,
     }>;
 
 // eslint-disable-next-line no-unused-vars
-const CheckModuleResolution: Check<ModuleResolution> = z.unionOf3(
+const CheckModuleResolution: Check<ModuleResolution> = z.unionOf4(
   z.object({
     type: z.literal('commonJS'),
     rootDir: z.unionOf(z.nullish(), z.string()),
@@ -60,6 +69,19 @@ const CheckModuleResolution: Check<ModuleResolution> = z.unionOf3(
   z.object({
     type: z.literal('haste'),
     themeFileExtension: z.unionOf(z.nullish(), z.string()),
+  }),
+  z.object({
+    type: z.literal('custom'),
+    themeFileExtension: z.unionOf(z.nullish(), z.string()),
+    filePathResolver:
+      z.func<
+        (
+          importPath: string,
+          sourceFilePath: string,
+          aliases: ?$ReadOnly<{ [string]: $ReadOnlyArray<string> }>,
+        ) => string | void,
+      >(),
+    getCanonicalFilePath: z.func<(filePath: string) => string>(),
   }),
   z.object({
     type: z.literal('experimental_crossFileParsing'),
@@ -75,8 +97,10 @@ export type StyleXOptions = $ReadOnly<{
   enableDebugDataProp?: boolean,
   enableDevClassNames?: boolean,
   enableInlinedConditionalMerge?: boolean,
+  enableMediaQueryOrder?: boolean,
   enableLegacyValueFlipping?: boolean,
   enableLogicalStylesPolyfill?: boolean,
+  enableLTRRTLComments?: boolean,
   enableMinifiedKeys?: boolean,
   importSources: $ReadOnlyArray<
     string | $ReadOnly<{ from: string, as: string }>,
@@ -85,6 +109,7 @@ export type StyleXOptions = $ReadOnly<{
   runtimeInjection: boolean | ?string | $ReadOnly<{ from: string, as: string }>,
   treeshakeCompensation?: boolean,
   unstable_moduleResolution?: ?ModuleResolution,
+  debugFilePath?: (filePath: string) => string,
   ...
 }>;
 
@@ -132,10 +157,13 @@ export default class StateManager {
   +stylexKeyframesImport: Set<string> = new Set();
   +stylexPositionTryImport: Set<string> = new Set();
   +stylexDefineVarsImport: Set<string> = new Set();
+  +stylexDefineMarkerImport: Set<string> = new Set();
   +stylexDefineConstsImport: Set<string> = new Set();
   +stylexCreateThemeImport: Set<string> = new Set();
   +stylexTypesImport: Set<string> = new Set();
   +stylexViewTransitionClassImport: Set<string> = new Set();
+  +stylexDefaultMarkerImport: Set<string> = new Set();
+  +stylexWhenImport: Set<string> = new Set();
 
   injectImportInserted: ?t.Identifier = null;
 
@@ -161,7 +189,7 @@ export default class StateManager {
   setOptions(options: { +[string]: mixed }): StyleXStateOptions {
     const dev: StyleXStateOptions['dev'] = z.logAndDefault(
       z.boolean(),
-      options.dev ?? false,
+      options.dev ?? defaultOptions.dev,
       false,
       'options.dev',
     );
@@ -176,7 +204,7 @@ export default class StateManager {
     const enableDebugClassNames: StyleXStateOptions['enableDebugClassNames'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableDebugClassNames ?? true,
+        options.enableDebugClassNames ?? defaultOptions.enableDebugClassNames,
         true,
         'options.enableDebugClassNames',
       );
@@ -184,23 +212,23 @@ export default class StateManager {
     const enableDebugDataProp: StyleXStateOptions['enableDebugDataProp'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableDebugDataProp ?? true,
-        true,
+        options.enableDebugDataProp ?? debug,
+        false,
         'options.enableDebugDataProp',
       );
 
     const enableDevClassNames: StyleXStateOptions['enableDevClassNames'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableDevClassNames ?? false,
-        false,
+        options.enableDevClassNames ?? dev,
+        dev,
         'options.enableDevClassNames',
       );
 
     const enableFontSizePxToRem: StyleXStateOptions['enableFontSizePxToRem'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableFontSizePxToRem ?? false,
+        options.enableFontSizePxToRem ?? defaultOptions.enableFontSizePxToRem,
         false,
         'options.enableFontSizePxToRem',
       );
@@ -208,7 +236,8 @@ export default class StateManager {
     const enableInlinedConditionalMerge: StyleXStateOptions['enableInlinedConditionalMerge'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableInlinedConditionalMerge ?? true,
+        options.enableInlinedConditionalMerge ??
+          defaultOptions.enableInlinedConditionalMerge,
         true,
         'options.enableInlinedConditionalMerge',
       );
@@ -216,15 +245,24 @@ export default class StateManager {
     const enableMinifiedKeys: StyleXStateOptions['enableMinifiedKeys'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableMinifiedKeys ?? true,
+        options.enableMinifiedKeys ?? defaultOptions.enableMinifiedKeys,
         true,
         'options.enableMinifiedKeys',
+      );
+
+    const enableMediaQueryOrder: StyleXStateOptions['enableMediaQueryOrder'] =
+      z.logAndDefault(
+        z.boolean(),
+        options.enableMediaQueryOrder ?? defaultOptions.enableMediaQueryOrder,
+        true,
+        'options.enableMediaQueryOrder',
       );
 
     const enableLegacyValueFlipping: StyleXStateOptions['enableLegacyValueFlipping'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableLegacyValueFlipping ?? false,
+        options.enableLegacyValueFlipping ??
+          defaultOptions.enableLegacyValueFlipping,
         false,
         'options.enableLegacyValueFlipping',
       );
@@ -232,14 +270,23 @@ export default class StateManager {
     const enableLogicalStylesPolyfill: StyleXStateOptions['enableLogicalStylesPolyfill'] =
       z.logAndDefault(
         z.boolean(),
-        options.enableLogicalStylesPolyfill ?? false,
+        options.enableLogicalStylesPolyfill ??
+          defaultOptions.enableLogicalStylesPolyfill,
         false,
         'options.enableLogicalStylesPolyfill',
       );
 
+    const enableLTRRTLComments: StyleXStateOptions['enableLTRRTLComments'] =
+      z.logAndDefault(
+        z.boolean(),
+        options.enableLTRRTLComments ?? defaultOptions.enableLTRRTLComments,
+        false,
+        'options.enableLTRRTLComments',
+      );
+
     const test: StyleXStateOptions['test'] = z.logAndDefault(
       z.boolean(),
-      options.test ?? false,
+      options.test ?? defaultOptions.test,
       false,
       'options.test',
     );
@@ -252,20 +299,16 @@ export default class StateManager {
         'options.runtimeInjection',
       );
 
-    // prettier-ignore
-    const runtimeInjection: StyleXStateOptions['runtimeInjection']
-      = configRuntimeInjection === true ?
-        DEFAULT_INJECT_PATH
-      : configRuntimeInjection === false ?
-        undefined
-      :
-        configRuntimeInjection
-      ;
-
+    const runtimeInjection: StyleXStateOptions['runtimeInjection'] =
+      configRuntimeInjection === true
+        ? DEFAULT_INJECT_PATH
+        : configRuntimeInjection === false
+          ? undefined
+          : configRuntimeInjection;
     const classNamePrefix: StyleXStateOptions['classNamePrefix'] =
       z.logAndDefault(
         z.string(),
-        options.classNamePrefix ?? 'x',
+        options.classNamePrefix ?? defaultOptions.classNamePrefix,
         'x',
         'options.classNamePrefix',
       );
@@ -273,7 +316,7 @@ export default class StateManager {
     const configuredImportSources: StyleXStateOptions['importSources'] =
       z.logAndDefault(
         checkImportSources,
-        options.importSources ?? [],
+        options.importSources ?? defaultOptions.importSources,
         [],
         'options.importSources',
       );
@@ -291,7 +334,7 @@ export default class StateManager {
           z.literal('property-specificity'),
           z.literal('legacy-expand-shorthands'),
         ),
-        options.styleResolution ?? 'property-specificity',
+        options.styleResolution ?? defaultOptions.styleResolution,
         'property-specificity',
         'options.styleResolution',
       );
@@ -307,7 +350,7 @@ export default class StateManager {
     const treeshakeCompensation: StyleXStateOptions['treeshakeCompensation'] =
       z.logAndDefault(
         z.boolean(),
-        options.treeshakeCompensation ?? false,
+        options.treeshakeCompensation ?? defaultOptions.treeshakeCompensation,
         false,
         'options.treeshakeCompensation',
       );
@@ -334,6 +377,13 @@ export default class StateManager {
             }),
           );
 
+    const debugFilePath: StyleXStateOptions['debugFilePath'] = z.logAndDefault(
+      z.optional(z.func<(filePath: string) => string>()),
+      options.debugFilePath,
+      undefined,
+      'options.debugFilePath',
+    );
+
     const opts: StyleXStateOptions = {
       aliases,
       classNamePrefix,
@@ -346,8 +396,10 @@ export default class StateManager {
       enableFontSizePxToRem,
       enableInlinedConditionalMerge,
       enableMinifiedKeys,
+      enableMediaQueryOrder,
       enableLegacyValueFlipping,
       enableLogicalStylesPolyfill,
+      enableLTRRTLComments,
       importSources,
       rewriteAliases:
         typeof options.rewriteAliases === 'boolean'
@@ -358,6 +410,7 @@ export default class StateManager {
       test,
       treeshakeCompensation,
       unstable_moduleResolution,
+      debugFilePath,
     };
     return opts;
   }
@@ -405,99 +458,6 @@ export default class StateManager {
     return typeof runInj === 'string' ? { from: runInj } : runInj || null;
   }
 
-  addNamedImport(
-    statementPath: NodePath<>,
-    as: string,
-    from: string,
-    options: ImportAdditionOptions,
-  ): t.Identifier {
-    const identifier = addNamed(statementPath, as, from, options);
-    const programPath = getProgramPath(statementPath);
-    if (programPath == null) {
-      return identifier;
-    }
-    const bodyPath: Array<NodePath<t.Statement>> = programPath.get('body');
-    let targetImportIndex = -1;
-    for (let i = 0; i < bodyPath.length; i++) {
-      const statement = bodyPath[i];
-      if (statement.isImportDeclaration()) {
-        targetImportIndex = i;
-        if (
-          statement.node.specifiers.find(
-            (s) =>
-              s.type === 'ImportSpecifier' &&
-              s.local.type === 'Identifier' &&
-              s.local.name === identifier.name,
-          )
-        ) {
-          break;
-        }
-      }
-    }
-    if (targetImportIndex === -1) {
-      return identifier;
-    }
-    const lastImport = bodyPath[targetImportIndex];
-    if (lastImport == null) {
-      return identifier;
-    }
-    const importName = statementPath.scope.generateUidIdentifier(as);
-
-    lastImport.insertAfter(
-      t.variableDeclaration('var', [
-        t.variableDeclarator(importName, identifier),
-      ]),
-    );
-
-    return importName;
-  }
-
-  addDefaultImport(
-    statementPath: NodePath<>,
-    from: string,
-    options: ImportAdditionOptions,
-  ): t.Identifier {
-    const identifier = addDefault(statementPath, from, options);
-    const programPath = getProgramPath(statementPath);
-    if (programPath == null) {
-      return identifier;
-    }
-    const bodyPath: Array<NodePath<t.Statement>> = programPath.get('body');
-    let targetImportIndex = -1;
-    for (let i = 0; i < bodyPath.length; i++) {
-      const statement = bodyPath[i];
-      if (statement.isImportDeclaration()) {
-        targetImportIndex = i;
-        if (
-          statement.node.specifiers.find(
-            (s) =>
-              s.type === 'ImportDefaultSpecifier' &&
-              s.local.type === 'Identifier' &&
-              s.local.name === identifier.name,
-          )
-        ) {
-          break;
-        }
-      }
-    }
-    if (targetImportIndex === -1) {
-      return identifier;
-    }
-    const lastImport = bodyPath[targetImportIndex];
-    if (lastImport == null) {
-      return identifier;
-    }
-    const importName = statementPath.scope.generateUidIdentifier('inject');
-
-    lastImport.insertAfter(
-      t.variableDeclaration('var', [
-        t.variableDeclarator(importName, identifier),
-      ]),
-    );
-
-    return importName;
-  }
-
   get opts(): StyleXStateOptions {
     return { ...this.options };
   }
@@ -531,17 +491,27 @@ export default class StateManager {
     const themeFileExtension =
       this.options.unstable_moduleResolution?.themeFileExtension ?? '.stylex';
 
-    if (
-      filename == null ||
-      !matchesFileSuffix(themeFileExtension)(filename) ||
-      this.options.unstable_moduleResolution == null
-    ) {
+    const constsFileExtension = `${themeFileExtension}.const`;
+
+    if (filename == null || this.options.unstable_moduleResolution == null) {
       return null;
     }
 
-    switch (this.options.unstable_moduleResolution.type) {
+    const isThemeFile = matchesFileSuffix(themeFileExtension)(filename);
+
+    const isConstsOnlyFile = matchesFileSuffix(constsFileExtension)(filename);
+
+    if (!isThemeFile && !isConstsOnlyFile) {
+      return null;
+    }
+
+    switch (this.options.unstable_moduleResolution?.type) {
       case 'haste':
         return path.basename(filename);
+      case 'custom':
+        return this.options.unstable_moduleResolution.getCanonicalFilePath(
+          filename,
+        );
       default:
         return this.getCanonicalFilePath(filename);
     }
@@ -592,15 +562,31 @@ export default class StateManager {
       return false;
     }
 
+    const themeFileExtension =
+      this.options.unstable_moduleResolution?.themeFileExtension ?? '.stylex';
+
+    const constsFileExtension = `${themeFileExtension}.const`;
+
+    const transformedVarsFileExtension = '.transformed';
+
+    const isValidStylexFile = matchesFileSuffix(themeFileExtension)(importPath);
+    const isValidTransformedVarsFile = matchesFileSuffix(
+      transformedVarsFileExtension,
+    )(importPath);
+    const isValidConstsOnlyFile =
+      matchesFileSuffix(constsFileExtension)(importPath);
+
+    if (
+      !isValidStylexFile &&
+      !isValidTransformedVarsFile &&
+      !isValidConstsOnlyFile
+    ) {
+      return false;
+    }
+
     switch (this.options.unstable_moduleResolution?.type) {
       case 'commonJS': {
         const aliases = this.options.aliases;
-        const themeFileExtension =
-          this.options.unstable_moduleResolution?.themeFileExtension ??
-          '.stylex';
-        if (!matchesFileSuffix(themeFileExtension)(importPath)) {
-          return false;
-        }
         const resolvedFilePath = filePathResolver(
           importPath,
           sourceFilePath,
@@ -611,22 +597,22 @@ export default class StateManager {
           : false;
       }
       case 'haste': {
-        const themeFileExtension =
-          this.options.unstable_moduleResolution.themeFileExtension ??
-          '.stylex';
-        if (!matchesFileSuffix(themeFileExtension)(importPath)) {
-          return false;
-        }
         return ['themeNameRef', addFileExtension(importPath, sourceFilePath)];
+      }
+      case 'custom': {
+        const aliases = this.options.aliases;
+        const moduleResolution = this.options.unstable_moduleResolution;
+        const result = moduleResolution.filePathResolver(
+          importPath,
+          sourceFilePath,
+          aliases,
+        );
+        return result
+          ? ['themeNameRef', moduleResolution.getCanonicalFilePath(result)]
+          : false;
       }
       case 'experimental_crossFileParsing': {
         const aliases = this.options.aliases;
-        const themeFileExtension =
-          this.options.unstable_moduleResolution.themeFileExtension ??
-          '.stylex';
-        if (!matchesFileSuffix(themeFileExtension)(importPath)) {
-          return false;
-        }
         const resolvedFilePath = filePathResolver(
           importPath,
           sourceFilePath,
@@ -640,38 +626,42 @@ export default class StateManager {
   }
 
   addStyle(
-    style: [
-      string,
-      (
-        | { ltr: string, rtl?: string | null }
-        | {
-            constKey: string,
-            constVal: string | number,
-            rtl?: string | null,
-            ltr: string,
-          }
-      ),
-      number,
-    ],
+    style: $ReadOnly<
+      [
+        string,
+        (
+          | $ReadOnly<{ ltr: string, rtl?: string | null }>
+          | $ReadOnly<{
+              constKey: string,
+              constVal: string | number,
+              rtl?: string | null,
+              ltr: string,
+            }>
+        ),
+        number,
+      ],
+    >,
   ): void {
     this.metadata.stylex.push(style);
   }
 
   registerStyles(
     styles: $ReadOnlyArray<
-      [
-        string,
-        (
-          | { ltr: string, rtl?: string | null }
-          | {
-              constKey: string,
-              constVal: string | number,
-              rtl?: string | null,
-              ltr: string,
-            }
-        ),
-        number,
-      ],
+      $ReadOnly<
+        [
+          string,
+          (
+            | $ReadOnly<{ ltr: string, rtl?: string | null }>
+            | $ReadOnly<{
+                constKey: string,
+                constVal: string | number,
+                rtl?: string | null,
+                ltr: string,
+              }>
+          ),
+          number,
+        ],
+      >,
     >,
     path?: ?NodePath<>,
   ): void {
@@ -698,23 +688,51 @@ export default class StateManager {
       const { from, as } = runtimeInjection;
       injectName =
         as != null
-          ? this.addNamedImport(statementPath, as, from, {
+          ? addNamedImport(statementPath, as, from, {
               nameHint: 'inject',
             })
-          : this.addDefaultImport(statementPath, from, {
+          : addDefaultImport(statementPath, from, {
               nameHint: 'inject',
             });
 
       this.injectImportInserted = injectName;
     }
-    for (const [_key, { ltr, rtl }, priority] of styles) {
+    for (const [_key, styleObj, priority] of styles) {
+      const { ltr, rtl } = styleObj;
+
+      let constKey = null;
+      let constVal = null;
+
+      if (styleObj.constKey != null && styleObj.constVal != null) {
+        constKey = styleObj.constKey;
+        constVal = styleObj.constVal;
+      }
+
+      const properties: Array<t.ObjectProperty> = [
+        t.objectProperty(t.identifier('ltr'), t.stringLiteral(ltr)),
+        ...(rtl != null
+          ? [t.objectProperty(t.identifier('rtl'), t.stringLiteral(rtl))]
+          : []),
+        t.objectProperty(t.identifier('priority'), t.numericLiteral(priority)),
+        ...(constKey != null
+          ? [
+              t.objectProperty(
+                t.identifier('constKey'),
+                t.stringLiteral(constKey),
+              ),
+              t.objectProperty(
+                t.identifier('constVal'),
+                typeof constVal === 'number'
+                  ? t.numericLiteral(constVal)
+                  : t.stringLiteral(String(constVal)),
+              ),
+            ]
+          : []),
+      ];
+
       statementPath.insertBefore(
         t.expressionStatement(
-          t.callExpression(injectName, [
-            t.stringLiteral(ltr),
-            t.numericLiteral(priority),
-            ...(rtl != null ? [t.stringLiteral(rtl)] : []),
-          ]),
+          t.callExpression(injectName, [t.objectExpression(properties)]),
         ),
       );
     }
@@ -827,30 +845,6 @@ export const matchesFileSuffix: (string) => (string) => boolean =
     ['', ...EXTENSIONS].some((extension) =>
       filename.endsWith(`${allowedSuffix}${extension}`),
     );
-
-const getProgramPath = (path: NodePath<>): null | NodePath<t.Program> => {
-  let programPath = path;
-  while (programPath != null && !programPath.isProgram()) {
-    if (programPath.parentPath) {
-      programPath = programPath.parentPath;
-    } else {
-      return null;
-    }
-  }
-  return programPath;
-};
-
-const getProgramStatement = (path: NodePath<>): NodePath<> => {
-  let programPath = path;
-  while (
-    programPath.parentPath != null &&
-    !programPath.parentPath.isProgram() &&
-    programPath.parentPath != null
-  ) {
-    programPath = programPath.parentPath;
-  }
-  return programPath;
-};
 
 export function getRelativePath(from: string, to: string): string {
   const relativePath = path.relative(path.parse(from).dir, to);

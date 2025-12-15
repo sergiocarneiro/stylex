@@ -18,26 +18,59 @@ import {
   firstThatWorks as stylexFirstThatWorks,
   keyframes as stylexKeyframes,
   positionTry as stylexPositionTry,
+  when as _stylexWhen,
 } from '../shared';
+import stylexDefaultMarker from '../shared/stylex-defaultMarker';
 import { addSourceMapData } from '../utils/add-sourcemap-data';
 import {
   convertToTestStyles,
   injectDevClassNames,
 } from '../utils/dev-classname';
-import {
-  convertObjectToAST,
-  removeObjectsWithSpreads,
-} from '../utils/js-to-ast';
+import { convertObjectToAST } from '../utils/js-to-ast';
 import { messages } from '../shared';
 import { evaluateStyleXCreateArg } from './parse-stylex-create-arg';
 import flatMapExpandedShorthands from '../shared/preprocess-rules';
+import { hoistExpression, pathReplaceHoisted } from '../utils/ast-helpers';
 
-function isSafeToSkipNullCheck(expr: t.Expression) {
-  return (
-    (t.isBinaryExpression(expr) &&
-      ['+', '-', '*', '/', '**'].includes(expr.operator)) ||
-    (t.isUnaryExpression(expr) && ['-', '+'].includes(expr.operator))
-  );
+function isSafeToSkipNullCheck(expr: t.Expression): boolean {
+  if (t.isTemplateLiteral(expr)) return true;
+
+  if (
+    t.isStringLiteral(expr) ||
+    t.isNumericLiteral(expr) ||
+    t.isBooleanLiteral(expr)
+  )
+    return true;
+
+  if (t.isBinaryExpression(expr)) {
+    return ['+', '-', '*', '/', '%', '**'].includes(expr.operator);
+  }
+
+  if (t.isUnaryExpression(expr)) {
+    return ['-', '+'].includes(expr.operator);
+  }
+
+  if (t.isConditionalExpression(expr)) {
+    return (
+      isSafeToSkipNullCheck(expr.consequent) &&
+      isSafeToSkipNullCheck(expr.alternate)
+    );
+  }
+
+  if (t.isLogicalExpression(expr)) {
+    if (expr.operator === '??' || expr.operator === '||') {
+      return (
+        isSafeToSkipNullCheck(expr.left) || isSafeToSkipNullCheck(expr.right)
+      );
+    }
+    if (expr.operator === '&&') {
+      return (
+        isSafeToSkipNullCheck(expr.left) && isSafeToSkipNullCheck(expr.right)
+      );
+    }
+  }
+
+  return false;
 }
 
 /// This function looks for `stylex.create` calls and transforms them.
@@ -114,6 +147,13 @@ export default function transformStyleXCreate(
 
     const identifiers: FunctionConfig['identifiers'] = {};
     const memberExpressions: FunctionConfig['memberExpressions'] = {};
+    const stylexWhen = Object.fromEntries(
+      Object.entries(_stylexWhen).map(([key, value]) => [
+        key,
+        (pseudo: string, marker?: string) =>
+          (value as $FlowFixMe)(pseudo, marker ?? state.options),
+      ]),
+    );
     state.stylexFirstThatWorksImport.forEach((name) => {
       identifiers[name] = { fn: stylexFirstThatWorks };
     });
@@ -123,6 +163,12 @@ export default function transformStyleXCreate(
     state.stylexPositionTryImport.forEach((name) => {
       identifiers[name] = { fn: positionTry };
     });
+    state.stylexDefaultMarkerImport.forEach((name) => {
+      identifiers[name] = () => stylexDefaultMarker(state.options);
+    });
+    state.stylexWhenImport.forEach((name) => {
+      identifiers[name] = stylexWhen;
+    });
     state.stylexImport.forEach((name) => {
       if (memberExpressions[name] == null) {
         memberExpressions[name] = {};
@@ -130,6 +176,10 @@ export default function transformStyleXCreate(
       memberExpressions[name].firstThatWorks = { fn: stylexFirstThatWorks };
       memberExpressions[name].keyframes = { fn: keyframes };
       memberExpressions[name].positionTry = { fn: positionTry };
+      memberExpressions[name].defaultMarker = {
+        fn: () => stylexDefaultMarker(state.options),
+      };
+      identifiers[name] = { ...(identifiers[name] ?? {}), when: stylexWhen };
     });
 
     const { confident, value, fns, reason, deopt } = evaluateStyleXCreateArg(
@@ -206,8 +256,10 @@ export default function transformStyleXCreate(
       };
     }
 
-    if (varName != null) {
-      const stylesToRemember = removeObjectsWithSpreads(compiledStyles);
+    if (varName != null && isTopLevel(path)) {
+      const stylesToRemember = Object.fromEntries(
+        Object.entries(compiledStyles),
+      );
       state.styleMap.set(varName, stylesToRemember);
       state.styleVars.set(varName, path.parentPath as $FlowFixMe);
     }
@@ -258,9 +310,12 @@ export default function transformStyleXCreate(
             if (t.isObjectExpression(prop.value)) {
               const value: t.ObjectExpression = prop.value;
 
-              const conditionalProps: Array<
-                t.ObjectProperty | t.SpreadElement,
-              > = [];
+              let cssTagValue: t.Expression | t.PatternLike =
+                t.booleanLiteral(true);
+
+              const staticProps: Array<t.ObjectProperty> = [];
+
+              const conditionalProps: Array<t.ObjectProperty> = [];
 
               value.properties.forEach((prop) => {
                 if (!t.isObjectProperty(prop) || t.isPrivateName(prop.key)) {
@@ -269,14 +324,19 @@ export default function transformStyleXCreate(
 
                 const objProp: t.ObjectProperty = prop;
                 const propKey =
-                  objProp.key.type === 'Identifier' && !objProp.computed
+                  t.isIdentifier(objProp.key) && !objProp.computed
                     ? objProp.key.name
-                    : objProp.key.type === 'StringLiteral'
+                    : t.isStringLiteral(objProp.key)
                       ? objProp.key.value
                       : null;
 
-                if (propKey == null || propKey === '$$css') {
-                  conditionalProps.push(objProp);
+                if (propKey == null) {
+                  staticProps.push(objProp);
+                  return;
+                }
+
+                if (propKey === '$$css') {
+                  cssTagValue = objProp.value;
                   return;
                 }
 
@@ -284,23 +344,28 @@ export default function transformStyleXCreate(
                   ? objProp.value.value.split(' ')
                   : [];
 
+                let isStatic = true;
                 const exprList: t.Expression[] = [];
 
-                classList.forEach((cls) => {
+                classList.forEach((cls, index) => {
                   const expr = dynamicStyles.find(
                     ({ path }) => origClassPaths[cls] === path,
                   )?.expression;
 
+                  const isLast = index === classList.length - 1;
+                  const clsWithSpace = isLast ? cls : cls + ' ';
+
                   if (expr && !isSafeToSkipNullCheck(expr)) {
+                    isStatic = false;
                     exprList.push(
                       t.conditionalExpression(
                         t.binaryExpression('!=', expr, t.nullLiteral()),
-                        t.stringLiteral(cls),
+                        t.stringLiteral(clsWithSpace),
                         expr,
                       ),
                     );
                   } else {
-                    exprList.push(t.stringLiteral(cls));
+                    exprList.push(t.stringLiteral(clsWithSpace));
                   }
                 });
 
@@ -311,22 +376,46 @@ export default function transformStyleXCreate(
                         t.binaryExpression('+', acc, curr),
                       );
 
-                conditionalProps.push(t.objectProperty(objProp.key, joined));
+                if (isStatic) {
+                  staticProps.push(t.objectProperty(objProp.key, joined));
+                } else {
+                  conditionalProps.push(t.objectProperty(objProp.key, joined));
+                }
               });
 
-              const conditionalObj = t.objectExpression(conditionalProps);
+              let staticObj = null;
+              let conditionalObj = null;
 
-              prop.value = t.arrowFunctionExpression(
-                params,
-                t.arrayExpression([
-                  conditionalObj,
-                  t.objectExpression(
-                    Object.entries(inlineStyles).map(([key, val]) =>
-                      t.objectProperty(t.stringLiteral(key), val.expression),
-                    ),
-                  ),
-                ]),
+              if (staticProps.length > 0) {
+                staticProps.push(
+                  t.objectProperty(t.stringLiteral('$$css'), cssTagValue),
+                );
+                staticObj = t.objectExpression(staticProps);
+              }
+
+              if (conditionalProps.length > 0) {
+                conditionalProps.push(
+                  t.objectProperty(t.identifier('$$css'), cssTagValue),
+                );
+                conditionalObj = t.objectExpression(conditionalProps);
+              }
+
+              let finalFnValue: t.Expression = t.objectExpression(
+                Object.entries(inlineStyles).map(([key, val]) =>
+                  t.objectProperty(t.stringLiteral(key), val.expression),
+                ),
               );
+              if (staticObj != null || conditionalObj != null) {
+                finalFnValue = t.arrayExpression(
+                  [
+                    staticObj && hoistExpression(path, staticObj),
+                    conditionalObj,
+                    finalFnValue,
+                  ].filter(Boolean),
+                );
+              }
+
+              prop.value = t.arrowFunctionExpression(params, finalFnValue);
             }
           }
         }
@@ -341,7 +430,7 @@ export default function transformStyleXCreate(
 
     state.registerStyles(listOfStyles, path);
 
-    path.replaceWith(resultAst);
+    pathReplaceHoisted(path, resultAst);
 
     if (Object.keys(injectedStyles).length === 0) {
       return;
@@ -358,13 +447,7 @@ function validateStyleXCreate(path: NodePath<t.CallExpression>) {
       SyntaxError,
     );
   }
-  const nearestStatement = findNearestStatementAncestor(path);
-  if (
-    !nearestStatement.parentPath.isProgram() &&
-    !nearestStatement.parentPath.isExportNamedDeclaration()
-  ) {
-    throw path.buildCodeFrameError(messages.ONLY_TOP_LEVEL, SyntaxError);
-  }
+
   if (path.node.arguments.length !== 1) {
     throw path.buildCodeFrameError(
       messages.illegalArgumentLength('create', 1),
@@ -384,17 +467,6 @@ function validateStyleXCreate(path: NodePath<t.CallExpression>) {
   if (hasSpread) {
     throw path.buildCodeFrameError(messages.NO_OBJECT_SPREADS, SyntaxError);
   }
-}
-
-// Find the nearest statement ancestor of a given path.
-function findNearestStatementAncestor(path: NodePath<>): NodePath<t.Statement> {
-  if (path.isStatement()) {
-    return path;
-  }
-  if (path.parentPath == null) {
-    throw new Error('Unexpected Path found that is not part of the AST.');
-  }
-  return findNearestStatementAncestor(path.parentPath);
 }
 
 function legacyExpandShorthands(
@@ -434,4 +506,13 @@ function legacyExpandShorthands(
     .filter(Boolean);
 
   return expandedKeysToKeyPaths;
+}
+
+function isTopLevel(path: NodePath<>): boolean {
+  if (path.isStatement()) {
+    return (
+      path.parentPath?.isProgram() || path.parentPath?.isExportDeclaration()
+    );
+  }
+  return path.parentPath != null && isTopLevel(path.parentPath);
 }

@@ -130,18 +130,31 @@ describe('[transform] stylex.create()', () => {
       import stylex from 'stylex';
       function Demo() {
         return <div>
-                    <button {...{
-            className: "xjyslct xc342km xng3xce x6tqnqi x1awj2ng"
-          }}>
+                    <button className="xjyslct xc342km xng3xce x6tqnqi x1awj2ng">
                       Hello
                     </button>
                   </div>;
       }
-      _inject2(".xjyslct{appearance:none}", 3000);
-      _inject2(".xc342km{border-width:0}", 2000);
-      _inject2(".xng3xce{border-style:none}", 2000);
-      _inject2(".x6tqnqi{background-color:pink}", 3000);
-      _inject2(".x1awj2ng{color:white}", 3000);"
+      _inject2({
+        ltr: ".xjyslct{appearance:none}",
+        priority: 3000
+      });
+      _inject2({
+        ltr: ".xc342km{border-width:0}",
+        priority: 2000
+      });
+      _inject2({
+        ltr: ".xng3xce{border-style:none}",
+        priority: 2000
+      });
+      _inject2({
+        ltr: ".x6tqnqi{background-color:pink}",
+        priority: 3000
+      });
+      _inject2({
+        ltr: ".x1awj2ng{color:white}",
+        priority: 3000
+      });"
     `);
   });
 });

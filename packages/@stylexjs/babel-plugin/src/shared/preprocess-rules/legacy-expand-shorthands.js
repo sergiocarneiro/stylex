@@ -11,6 +11,9 @@ import type { TStyleValue } from '../common-types';
 
 import splitValue from '../utils/split-css-value';
 
+export const LOGICAL_FLOAT_START_VAR = '--stylex-logical-start';
+export const LOGICAL_FLOAT_END_VAR = '--stylex-logical-end';
+
 // TODO: to be added later.
 // const aliases = {
 //   marginInlineStart: (rawValue) => [['marginStart', rawValue]],
@@ -82,6 +85,15 @@ import splitValue from '../utils/split-css-value';
  */
 
 type TReturn = $ReadOnlyArray<[string, TStyleValue]>;
+
+const listStyleGlobalValues = new Set<string>([
+  'inherit',
+  'initial',
+  'revert',
+  'unset',
+]);
+const listStylePositionValues = new Set<string>(['inside', 'outside']);
+const listStyleTypeRegex = /^([a-z-]+|".*?"|'.*?')$/;
 
 const shorthands: $ReadOnly<{ [key: string]: (TStyleValue) => TReturn }> = {
   border: (rawValue: TStyleValue): TReturn => {
@@ -247,6 +259,96 @@ const shorthands: $ReadOnly<{ [key: string]: (TStyleValue) => TReturn }> = {
       ['columnGap', column],
     ];
   },
+
+  listStyle: (rawValue: TStyleValue): TReturn => {
+    if (rawValue == null) {
+      return [
+        ['listStyleType', null],
+        ['listStylePosition', null],
+        ['listStyleImage', null],
+      ];
+    }
+    const parts = splitValue(rawValue);
+    let image = null;
+    let position = null;
+    let type = null;
+
+    // Handle global keywords - must be the only value
+    if (
+      parts.length === 1 &&
+      parts[0] != null &&
+      typeof parts[0] === 'string' &&
+      listStyleGlobalValues.has(parts[0])
+    ) {
+      const globalValue = parts[0];
+      return [
+        ['listStyleType', globalValue],
+        ['listStylePosition', globalValue],
+        ['listStyleImage', globalValue],
+      ];
+    }
+
+    // First pass: assign values that can only belong to one property
+    const remainingParts = [];
+
+    for (const part of parts) {
+      if (part == null || typeof part !== 'string') continue;
+
+      // Check for global keywords mixed with other values (invalid)
+      // and use of `var()` which can't be disambiguated.
+      if (listStyleGlobalValues.has(part) || part.includes('var(--')) {
+        throw new Error(
+          `invalid "listStyle" value of "${JSON.stringify(rawValue)}"`,
+        );
+      }
+      // Check if it's a position value (unambiguous)
+      else if (listStylePositionValues.has(part)) {
+        if (position != null) {
+          throw new Error(
+            `invalid "listStyle" value of ${JSON.stringify(rawValue)}`,
+          );
+        }
+        position = part;
+      }
+      // Check if it's a type value that's not 'none' (unambiguous)
+      else if (part !== 'none' && listStyleTypeRegex.test(part)) {
+        if (type != null) {
+          throw new Error(
+            `invalid "listStyle" value of ${JSON.stringify(rawValue)}`,
+          );
+        }
+        type = part;
+      }
+      // Keep ambiguous values for second pass
+      else {
+        remainingParts.push(part);
+      }
+    }
+
+    // Second pass: handle remaining parts (including 'none' and image values)
+    for (const part of remainingParts) {
+      // If 'none' and type is not yet assigned, assign to type
+      if (part === 'none' && type == null) {
+        type = part;
+      }
+      // Otherwise assign to image
+      else {
+        if (image != null) {
+          throw new Error(
+            `invalid "listStyle" value of ${JSON.stringify(rawValue)}`,
+          );
+        }
+        image = part;
+      }
+    }
+
+    return [
+      ['listStyleType', type],
+      ['listStylePosition', position],
+      ['listStyleImage', image],
+    ];
+  },
+
   margin: (rawValue: TStyleValue): TReturn => {
     const [top, right = top, bottom = top, left = right] = splitValue(rawValue);
 
@@ -416,6 +518,23 @@ const aliases = {
   scrollMarginBlockEnd: (value: TStyleValue): TReturn => [
     ['scrollMarginBottom', value],
   ],
+  float: (value: TStyleValue): TReturn => {
+    if (value === 'inline-start' || value === 'start') {
+      return [['float', `var(${LOGICAL_FLOAT_START_VAR})`]];
+    } else if (value === 'inline-end' || value === 'end') {
+      return [['float', `var(${LOGICAL_FLOAT_END_VAR})`]];
+    }
+    return [['float', value]];
+  },
+
+  clear: (value: TStyleValue): TReturn => {
+    if (value === 'inline-start' || value === 'start') {
+      return [['clear', `var(${LOGICAL_FLOAT_START_VAR})`]];
+    } else if (value === 'inline-end' || value === 'end') {
+      return [['clear', `var(${LOGICAL_FLOAT_END_VAR})`]];
+    }
+    return [['clear', value]];
+  },
 };
 
 const expansions = {

@@ -3,7 +3,7 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-sidebar_position: 6
+sidebar_position: 7
 ---
 
 # `stylex.keyframes`
@@ -36,6 +36,27 @@ const styles = stylex.create({
     animationIterationCount: 'infinite',
   },
 });
+```
+
+To chain multiple keyframes, provide comma-separated values to animation properties: 
+```tsx
+const expand = stylex.keyframes({
+  from: {maxHeight: '0px'}, 
+  to: {maxHeight: '1000px'},
+});
+
+const fadeIn = stylex.keyframes({
+  from: {opacity: 0}, 
+  to: {opacity: 1}, 
+})
+
+const styles = stylex.create({
+  open: {
+    animationName: `${fadeIn}, ${expand}`,
+    animationDuration: '1s, 1s',
+  },
+});
+
 ```
 
 To use `keyframes` return values in a separate file, you can use `defineVars` to hold animation names:

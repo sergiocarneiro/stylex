@@ -10,3 +10,6 @@ node_modules
 *.mdx
 **/__mocks__/snapshot*
 packages/benchmarks/size/fixtures/lotsOfStyles.js
+flow-typed
+examples/example-storybook/storybook-static
+examples/example-cli/src

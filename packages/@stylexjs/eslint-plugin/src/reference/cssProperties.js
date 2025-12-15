@@ -10,7 +10,7 @@
 'use strict';
 import namedColors from '../reference/namedColors';
 import type { Expression, Node, Pattern, Property } from 'estree';
-/*:: import { Rule } from 'eslint'; */
+import type { Rule } from 'eslint';
 import isCSSVariable from '../rules/isCSSVariable';
 import makeLiteralRule from '../rules/makeLiteralRule';
 import makeRangeRule from '../rules/makeRangeRule';
@@ -55,6 +55,10 @@ const isLength: RuleCheck = makeUnionRule(isAbsoluteLength, isRelativeLength);
 const isNonNumericString: RuleCheck = (node: Node): RuleResponse => {
   if (node.type === 'Literal' && typeof node.value === 'string') {
     if (/^[-+]?(?:\d+|\d*\.\d+)$/.test(node.value)) {
+      if (node.value === '0') {
+        return undefined;
+      }
+
       return {
         message: 'a non-numeric string',
       };
@@ -418,7 +422,49 @@ const backfaceVisibility: RuleCheck = makeUnionRule(
 );
 // type background = string | finalBgLayer;
 const backgroundAttachment: RuleCheck = attachment;
-const backgroundBlendMode: RuleCheck = blendMode;
+const backgroundBlendMode: RuleCheck = (
+  node: Expression | Pattern,
+  _variables?: Variables,
+  prop?: Property,
+) => {
+  if (node.type !== 'Literal' || prop == null) {
+    return blendMode(node, _variables, prop);
+  }
+
+  if (typeof node.value === 'string') {
+    const value: string = node.value;
+    const items = value.split(', ');
+    if (value.split(',').length !== items.length) {
+      return {
+        message:
+          "backgroundBlendMode values must be separated by a comma and a space (', ')",
+        suggest: {
+          desc: 'Replace comma with a comma and a space (", ")',
+          fix: (fixer: Rule.RuleFixer): Rule.Fix | null => {
+            return fixer.replaceText(
+              prop,
+              `backgroundBlendMode: '${value.replace(',', ', ')}'`,
+            );
+          },
+        },
+      };
+    }
+    for (const item of items) {
+      const response = blendMode(
+        { type: 'Literal', value: item, raw: `'${item}'` },
+        _variables,
+        prop,
+      );
+      if (response !== undefined) {
+        return {
+          message: response.message,
+        };
+      }
+    }
+
+    return undefined;
+  }
+};
 const backgroundClip: RuleCheck = makeUnionRule(
   'border-box',
   'padding-box',

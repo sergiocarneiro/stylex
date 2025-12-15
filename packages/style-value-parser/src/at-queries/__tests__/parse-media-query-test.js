@@ -96,7 +96,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media only print and (color)"',
+          '"@media only (print) and (color)"',
         );
       });
 
@@ -139,7 +139,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media not all and (monochrome)"',
+          '"@media not (all) and (monochrome)"',
         );
       });
     });
@@ -940,7 +940,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media not all and (monochrome)"',
+          '"@media not (all) and (monochrome)"',
         );
       });
 
@@ -973,7 +973,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media screen and (min-width: 400px)"',
+          '"@media (screen) and (min-width: 400px)"',
         );
       });
 
@@ -1037,7 +1037,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media screen and (device-aspect-ratio: 16 / 9)"',
+          '"@media (screen) and (device-aspect-ratio: 16 / 9)"',
         );
       });
 
@@ -1970,7 +1970,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media (color) and (min-width: 400px), screen and (max-width: 700px)"',
+          '"@media (color) and (min-width: 400px), (screen) and (max-width: 700px)"',
         );
       });
     });
@@ -2008,23 +2008,13 @@ describe('style-value-parser/at-queries', () => {
         expect(parsed).toMatchInlineSnapshot(`
           MediaQuery {
             "queries": {
-              "rule": {
-                "rules": [
-                  {
-                    "key": "all",
-                    "not": true,
-                    "type": "media-keyword",
-                  },
-                ],
-                "type": "and",
-              },
-              "type": "not",
+              "key": "all",
+              "not": false,
+              "type": "media-keyword",
             },
           }
         `);
-        expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media (not (not all))"',
-        );
+        expect(parsed.toString()).toMatchInlineSnapshot('"@media all"');
       });
 
       test('@media not all and (monochrome) and (min-width: 600px)', () => {
@@ -2060,7 +2050,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media not all and (monochrome) and (min-width: 600px)"',
+          '"@media not (all) and (monochrome) and (min-width: 600px)"',
         );
       });
 
@@ -2279,7 +2269,7 @@ describe('style-value-parser/at-queries', () => {
           }
         `);
         expect(parsed.toString()).toMatchInlineSnapshot(
-          '"@media screen and (min-width: 500px) and (max-width: 800px) and (color)"',
+          '"@media (screen) and (min-width: 500px) and (max-width: 800px) and (color)"',
         );
       });
     });
@@ -2857,6 +2847,244 @@ describe('style-value-parser/at-queries', () => {
       );
       expect(parsed.toString()).toBe(
         '@media (min-width: calc(100px + 2em)) and (max-width: 500px)',
+      );
+    });
+  });
+
+  describe('additional media query features', () => {
+    test('@media (-webkit-min-device-pixel-ratio: 2)', () => {
+      const input = '@media (-webkit-min-device-pixel-ratio: 2)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "-webkit-min-device-pixel-ratio",
+            "type": "pair",
+            "value": 2,
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (-webkit-min-device-pixel-ratio: 2)"',
+      );
+    });
+
+    test('@media (-webkit-max-device-pixel-ratio: 1.5)', () => {
+      const input = '@media (-webkit-max-device-pixel-ratio: 1.5)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "-webkit-max-device-pixel-ratio",
+            "type": "pair",
+            "value": 1.5,
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (-webkit-max-device-pixel-ratio: 1.5)"',
+      );
+    });
+
+    test('@media (color-index: 256)', () => {
+      const input = '@media (color-index: 256)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "color-index",
+            "type": "pair",
+            "value": 256,
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (color-index: 256)"',
+      );
+    });
+
+    test('@media (min-color-index: 256)', () => {
+      const input = '@media (min-color-index: 256)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "min-color-index",
+            "type": "pair",
+            "value": 256,
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (min-color-index: 256)"',
+      );
+    });
+
+    test('@media (max-color-index: 65536)', () => {
+      const input = '@media (max-color-index: 65536)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "max-color-index",
+            "type": "pair",
+            "value": 65536,
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (max-color-index: 65536)"',
+      );
+    });
+
+    test('@media (resolution: 300dpi)', () => {
+      const input = '@media (resolution: 300dpi)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "resolution",
+            "type": "pair",
+            "value": {
+              "signCharacter": undefined,
+              "type": "integer",
+              "unit": "dpi",
+              "value": 300,
+            },
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (resolution: 300dpi)"',
+      );
+    });
+
+    test('@media (resolution: 2dppx)', () => {
+      const input = '@media (resolution: 2dppx)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "resolution",
+            "type": "pair",
+            "value": {
+              "signCharacter": undefined,
+              "type": "integer",
+              "unit": "dppx",
+              "value": 2,
+            },
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (resolution: 2dppx)"',
+      );
+    });
+
+    test('@media (resolution: 1.5dpcm)', () => {
+      const input = '@media (resolution: 1.5dpcm)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "resolution",
+            "type": "pair",
+            "value": {
+              "signCharacter": undefined,
+              "type": "number",
+              "unit": "dpcm",
+              "value": 1.5,
+            },
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (resolution: 1.5dpcm)"',
+      );
+    });
+
+    test('@media (color-gamut: p3)', () => {
+      const input = '@media (color-gamut: p3)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "color-gamut",
+            "type": "pair",
+            "value": "p3",
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (color-gamut: p3)"',
+      );
+    });
+
+    test('@media (color-gamut: rec2020)', () => {
+      const input = '@media (color-gamut: rec2020)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "color-gamut",
+            "type": "pair",
+            "value": "rec2020",
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (color-gamut: rec2020)"',
+      );
+    });
+
+    test('@media (video-color-gamut: srgb)', () => {
+      const input = '@media (video-color-gamut: srgb)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "video-color-gamut",
+            "type": "pair",
+            "value": "srgb",
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (video-color-gamut: srgb)"',
+      );
+    });
+
+    test('@media (video-color-gamut: p3)', () => {
+      const input = '@media (video-color-gamut: p3)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "video-color-gamut",
+            "type": "pair",
+            "value": "p3",
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (video-color-gamut: p3)"',
+      );
+    });
+
+    test('@media (video-color-gamut: rec2020)', () => {
+      const input = '@media (video-color-gamut: rec2020)';
+      const parsed = MediaQuery.parser.parseToEnd(input);
+      expect(parsed).toMatchInlineSnapshot(`
+        MediaQuery {
+          "queries": {
+            "key": "video-color-gamut",
+            "type": "pair",
+            "value": "rec2020",
+          },
+        }
+      `);
+      expect(parsed.toString()).toMatchInlineSnapshot(
+        '"@media (video-color-gamut: rec2020)"',
       );
     });
   });

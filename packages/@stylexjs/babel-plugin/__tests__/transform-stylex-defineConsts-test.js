@@ -358,6 +358,146 @@ describe('@stylexjs/babel-plugin', () => {
       `);
     });
 
+    test.skip('works with firstThatWorks', () => {
+      const { code } = transformWithInlineConsts(`
+        import * as stylex from '@stylexjs/stylex';
+        import { colors } from './constants.stylex';
+
+        export const styles = stylex.create({
+          nodeEnd: (animationDuration) => ({
+            foo: {
+              color: stylex.firstThatWorks(colors.background, 'transparent'),
+            },
+          }),
+        });
+      `);
+
+      expect(code).toMatchInlineSnapshot(`
+            `);
+    });
+
+    test('works with dynamic styles constants', () => {
+      const { code, metadata } = transformWithInlineConsts(`
+        import * as stylex from '@stylexjs/stylex';
+        import { colors } from './constants.stylex';
+
+        export const styles = stylex.create({
+          node: (padding) => ({
+            padding: padding,
+            color: colors.background,
+          }),
+        });
+      `);
+
+      expect(code).toMatchInlineSnapshot(`
+        "import * as stylex from '@stylexjs/stylex';
+        import { colors } from './constants.stylex';
+        const _temp = {
+          kMwMTN: "xy1iwrb",
+          "$$css": true
+        };
+        export const styles = {
+          node: padding => [_temp, {
+            kmVPX3: padding != null ? "x1fozly0" : padding,
+            $$css: true
+          }, {
+            "--x-padding": (val => typeof val === "number" ? val + "px" : val != null ? val : undefined)(padding)
+          }]
+        };"
+      `);
+
+      expect(metadata).toMatchInlineSnapshot(`
+        {
+          "stylex": [
+            [
+              "x1fozly0",
+              {
+                "ltr": ".x1fozly0{padding:var(--x-padding)}",
+                "rtl": null,
+              },
+              1000,
+            ],
+            [
+              "xy1iwrb",
+              {
+                "ltr": ".xy1iwrb{color:var(--x180gk19)}",
+                "rtl": null,
+              },
+              3000,
+            ],
+            [
+              "--x-padding",
+              {
+                "ltr": "@property --x-padding { syntax: "*"; inherits: false;}",
+                "rtl": null,
+              },
+              0,
+            ],
+          ],
+        }
+      `);
+    });
+
+    test('works with dynamic styles at-rules', () => {
+      const { code, metadata } = transformWithInlineConsts(`
+        import * as stylex from '@stylexjs/stylex';
+        import { breakpoints } from './constants.stylex';
+
+        export const styles = stylex.create({
+          node: (color) => ({
+            color: {
+              [breakpoints.small]: 'blue',
+              default: color,
+            },
+          }),
+        });
+      `);
+
+      expect(code).toMatchInlineSnapshot(`
+        "import * as stylex from '@stylexjs/stylex';
+        import { breakpoints } from './constants.stylex';
+        export const styles = {
+          node: color => [{
+            kMwMTN: "xbs0o1n " + (color != null ? "x3d248p" : color),
+            $$css: true
+          }, {
+            "--x-4xs81a": color != null ? color : undefined
+          }]
+        };"
+      `);
+
+      expect(metadata).toMatchInlineSnapshot(`
+        {
+          "stylex": [
+            [
+              "xbs0o1n",
+              {
+                "ltr": "var(--x1r2wpmh){.xbs0o1n.xbs0o1n{color:blue}}",
+                "rtl": null,
+              },
+              6000,
+            ],
+            [
+              "x3d248p",
+              {
+                "ltr": ".x3d248p{color:var(--x-4xs81a)}",
+                "rtl": null,
+              },
+              3000,
+            ],
+            [
+              "--x-4xs81a",
+              {
+                "ltr": "@property --x-4xs81a { syntax: "*"; inherits: false;}",
+                "rtl": null,
+              },
+              0,
+            ],
+          ],
+        }
+      `);
+    });
+
     test('adds multiple media query placeholders from constants.stylex', () => {
       const { code, metadata } = transformWithInlineConsts(`
         import * as stylex from '@stylexjs/stylex';
@@ -475,6 +615,401 @@ describe('@stylexjs/babel-plugin', () => {
             ],
           ],
         }
+      `);
+    });
+  });
+
+  describe('[transform] stylex.defineConsts() with runtimeInjection', () => {
+    test('constants object with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code, metadata } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const breakpoints = stylex.defineConsts({
+          sm: '(min-width: 768px)',
+          md: '(min-width: 1024px)',
+          lg: '(min-width: 1280px)',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1izlsax",
+          constVal: "(min-width: 768px)"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xe5hjsi",
+          constVal: "(min-width: 1024px)"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xmbwnbr",
+          constVal: "(min-width: 1280px)"
+        });
+        export const breakpoints = {
+          sm: "(min-width: 768px)",
+          md: "(min-width: 1024px)",
+          lg: "(min-width: 1280px)"
+        };"
+      `);
+
+      expect(metadata.stylex).toMatchInlineSnapshot(`
+        [
+          [
+            "x1izlsax",
+            {
+              "constKey": "x1izlsax",
+              "constVal": "(min-width: 768px)",
+              "ltr": "",
+              "rtl": null,
+            },
+            0,
+          ],
+          [
+            "xe5hjsi",
+            {
+              "constKey": "xe5hjsi",
+              "constVal": "(min-width: 1024px)",
+              "ltr": "",
+              "rtl": null,
+            },
+            0,
+          ],
+          [
+            "xmbwnbr",
+            {
+              "constKey": "xmbwnbr",
+              "constVal": "(min-width: 1280px)",
+              "ltr": "",
+              "rtl": null,
+            },
+            0,
+          ],
+        ]
+      `);
+    });
+
+    test('numeric constants with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const sizes = stylex.defineConsts({
+          small: 8,
+          medium: 16,
+          large: 24,
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1mllmr4",
+          constVal: 8
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1g9nw8d",
+          constVal: 16
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1c5h197",
+          constVal: 24
+        });
+        export const sizes = {
+          small: 8,
+          medium: 16,
+          large: 24
+        };"
+      `);
+    });
+
+    test('string constants with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const colors = stylex.defineConsts({
+          primary: 'rebeccapurple',
+          secondary: 'coral',
+          tertiary: 'turquoise',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xbx9tme",
+          constVal: "rebeccapurple"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1is3lfz",
+          constVal: "coral"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1uyqs0n",
+          constVal: "turquoise"
+        });
+        export const colors = {
+          primary: "rebeccapurple",
+          secondary: "coral",
+          tertiary: "turquoise"
+        };"
+      `);
+    });
+
+    test('mixed string and numeric constants with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const theme = stylex.defineConsts({
+          spacing: 16,
+          color: 'blue',
+          breakpoint: '(min-width: 768px)',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xtp8oqr",
+          constVal: 16
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xzwxy2o",
+          constVal: "blue"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1dhodo0",
+          constVal: "(min-width: 768px)"
+        });
+        export const theme = {
+          spacing: 16,
+          color: "blue",
+          breakpoint: "(min-width: 768px)"
+        };"
+      `);
+    });
+
+    test('constants with special characters with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const urls = stylex.defineConsts({
+          background: 'url("bg.png")',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1abznok",
+          constVal: "url(\\"bg.png\\")"
+        });
+        export const urls = {
+          background: "url(\\"bg.png\\")"
+        };"
+      `);
+    });
+
+    test('constants with custom inject path with runtimeInjection', () => {
+      const options = {
+        runtimeInjection: '@custom/inject-path',
+      };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const breakpoints = stylex.defineConsts({
+          sm: '(min-width: 768px)',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@custom/inject-path";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1izlsax",
+          constVal: "(min-width: 768px)"
+        });
+        export const breakpoints = {
+          sm: "(min-width: 768px)"
+        };"
+      `);
+    });
+
+    test('haste module with runtimeInjection: true', () => {
+      const options = {
+        unstable_moduleResolution: { type: 'haste' },
+        runtimeInjection: true,
+      };
+
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const breakpoints = stylex.defineConsts({
+          sm: '(min-width: 768px)',
+          md: '(min-width: 1024px)',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1izlsax",
+          constVal: "(min-width: 768px)"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xe5hjsi",
+          constVal: "(min-width: 1024px)"
+        });
+        export const breakpoints = {
+          sm: "(min-width: 768px)",
+          md: "(min-width: 1024px)"
+        };"
+      `);
+    });
+
+    test('constants with numeric keys with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const levels = stylex.defineConsts({
+          0: 'zero',
+          1: 'one',
+          2: 'two',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1t8zjeu",
+          constVal: "zero"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xr91grk",
+          constVal: "one"
+        });
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x5diukc",
+          constVal: "two"
+        });
+        export const levels = {
+          "0": "zero",
+          "1": "one",
+          "2": "two"
+        };"
+      `);
+    });
+
+    test('multiple defineConsts calls with runtimeInjection: true', () => {
+      const options = { runtimeInjection: true };
+      const { code } = transform(
+        `
+        import * as stylex from '@stylexjs/stylex';
+        export const breakpoints = stylex.defineConsts({
+          sm: '(min-width: 768px)',
+        });
+        export const colors = stylex.defineConsts({
+          primary: 'blue',
+        });
+      `,
+        options,
+      );
+
+      expect(code).toMatchInlineSnapshot(`
+        "import _inject from "@stylexjs/stylex/lib/stylex-inject";
+        var _inject2 = _inject;
+        import * as stylex from '@stylexjs/stylex';
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "x1izlsax",
+          constVal: "(min-width: 768px)"
+        });
+        export const breakpoints = {
+          sm: "(min-width: 768px)"
+        };
+        _inject2({
+          ltr: "",
+          priority: 0,
+          constKey: "xbx9tme",
+          constVal: "blue"
+        });
+        export const colors = {
+          primary: "blue"
+        };"
       `);
     });
   });

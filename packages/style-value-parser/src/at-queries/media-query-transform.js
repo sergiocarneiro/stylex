@@ -7,6 +7,8 @@
  * @flow strict
  */
 
+import type { MediaQueryRule } from './media-query';
+
 import { MediaQuery } from './media-query.js';
 
 export function lastMediaQueryWinsTransform(styles: Object): Object {
@@ -41,10 +43,10 @@ function combineMediaQueryWithNegations(
         current.queries,
         ...negations.map((mq) => ({ type: 'not', rule: mq.queries })),
       ],
-    };
+    } as const;
   }
 
-  return new MediaQuery(combinedAst);
+  return new MediaQuery(combinedAst as $FlowFixMe as MediaQueryRule);
 }
 
 function dfsProcessQueries(
@@ -53,6 +55,10 @@ function dfsProcessQueries(
 ): {
   [key: string]: any,
 } {
+  if (Array.isArray(obj)) {
+    // Ignore `firstThatWorks` arrays
+    return obj;
+  }
   const result: { [key: string]: any } = {};
 
   Object.entries(obj).forEach(([key, value]) => {
@@ -64,7 +70,7 @@ function dfsProcessQueries(
   });
 
   if (
-    depth >= 2 &&
+    depth >= 1 &&
     Object.keys(result).some((key) => key.startsWith('@media '))
   ) {
     const mediaKeys = Object.keys(result).filter((key) =>

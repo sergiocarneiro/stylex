@@ -79,6 +79,7 @@ export function evaluateStyleXCreateArg(
     const fnPath: NodePath<t.ArrowFunctionExpression> = valPath;
     const allParams: Array<
       NodePath<t.Identifier | t.SpreadElement | t.Pattern>,
+      // $FlowFixMe[incompatible-type]
     > = fnPath.get('params');
 
     validateDynamicStyleParams(fnPath, allParams);
@@ -141,6 +142,7 @@ function evaluatePartialObjectRecursively(
       if (!result.confident) {
         return result;
       }
+      // $FlowFixMe[unsafe-object-assign]
       Object.assign(obj, result.value);
       continue;
     }
@@ -150,12 +152,17 @@ function evaluatePartialObjectRecursively(
         return { confident: false, deopt: keyResult.deopt, value: null };
       }
       let key = keyResult.value;
-      if (key.startsWith('var(') && key.endsWith(')')) {
-        key = key.slice(4, -1);
-      }
 
       const valuePath: NodePath<t.Expression | t.PatternLike> =
         prop.get('value');
+
+      if (key.startsWith('var(') && key.endsWith(')')) {
+        const inner = key.slice(4, -1);
+        // When the `keyPath` is not empty, the var(--hash) is a `defineConsts` at-rule placeholder and must be kept intact.
+        if (keyPath.length === 0) {
+          key = inner;
+        }
+      }
 
       if (valuePath.isObjectExpression()) {
         const result = evaluatePartialObjectRecursively(
@@ -168,13 +175,14 @@ function evaluatePartialObjectRecursively(
           return { confident: false, deopt: result.deopt, value: null };
         }
         obj[key] = result.value;
+        // $FlowFixMe[unsafe-object-assign]
         Object.assign(inlineStyles, result.inlineStyles);
       } else {
         const result = evaluate(valuePath, traversalState, functions);
         if (!result.confident) {
           const fullKeyPath = [...keyPath, key];
           const varName =
-            '--' +
+            '--x-' +
             (keyPath.length > 0
               ? utils.hash([...keyPath, key].join('_'))
               : key);

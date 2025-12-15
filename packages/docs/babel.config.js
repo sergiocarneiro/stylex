@@ -12,6 +12,9 @@ const isProd = process.env.NODE_ENV === 'production';
 
 const options = {
   dev: !isProd,
+  runtimeInjection: !isProd,
+  enableDebugClassNames: false,
+  enableDevClassNames: false,
   test: false,
   stylexSheetName: '<>',
   unstable_moduleResolution: {

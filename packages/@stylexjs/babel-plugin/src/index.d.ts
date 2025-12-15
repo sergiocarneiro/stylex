@@ -36,7 +36,13 @@ declare function stylexPluginWithOptions(
 export type Rule = [string, { ltr: string; rtl?: null | string }, number];
 declare function processStylexRules(
   rules: Array<Rule>,
-  useLayers: boolean,
+  config?:
+    | boolean
+    | {
+        useLayers?: boolean;
+        enableLTRRTLComments?: boolean;
+        legacyDisableLayers?: boolean;
+      },
 ): string;
 export type StyleXTransformObj = Readonly<{
   (): PluginObj;
@@ -44,4 +50,4 @@ export type StyleXTransformObj = Readonly<{
   processStylexRules: typeof processStylexRules;
 }>;
 declare const $$EXPORT_DEFAULT_DECLARATION$$: StyleXTransformObj;
-export = $$EXPORT_DEFAULT_DECLARATION$$;
+export default $$EXPORT_DEFAULT_DECLARATION$$;
