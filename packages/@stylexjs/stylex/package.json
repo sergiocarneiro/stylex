@@ -60,7 +60,7 @@
     "babel-plugin-syntax-hermes-parser": "^0.32.1",
     "cross-env": "^10.1.0",
     "rimraf": "^6.1.2",
-    "rollup": "^4.24.0",
+    "rollup": "^4.59.0",
     "scripts": "0.17.3"
   },
   "files": [
